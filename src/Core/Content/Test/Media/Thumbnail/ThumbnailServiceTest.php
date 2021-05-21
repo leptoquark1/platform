@@ -425,4 +425,52 @@ class ThumbnailServiceTest extends TestCase
             static::assertSame(266, $height);
         }
     }
+
+    public function testShouldRegenerateWhenPhysicalFileForThumbnailIsMissing(): void
+    {
+        $this->setFixtureContext($this->context);
+        $media = $this->getPngWithFolder();
+
+        $this->thumbnailRepository->create([
+            [
+                'mediaId' => $media->getId(),
+                'width' => 200,
+                'height' => 200,
+            ],
+        ], $this->context);
+
+        $criteria = new Criteria([$media->getId()]);
+        $criteria->addAssociation('thumbnails');
+        $criteria->addAssociation('mediaFolder.configuration.mediaThumbnailSizes');
+
+        $media = $this->mediaRepository->search($criteria, $this->context)->get($media->getId());
+
+        $this->getPublicFilesystem()->putStream(
+            $this->urlGenerator->getRelativeMediaUrl($media),
+            fopen(__DIR__ . '/../fixtures/shopware-logo.png', 'rb')
+        );
+
+        $this->thumbnailService->generate(new MediaCollection([$media]), $this->context);
+
+        $criteria = new Criteria([$media->getId()]);
+        $criteria->addAssociation('thumbnails');
+
+        $media = $this->mediaRepository
+            ->search($criteria, $this->context)
+            ->get($media->getId());
+
+        $thumbnail = $media->getThumbnails()->first();
+        $thumbnailPath = $this->urlGenerator->getRelativeThumbnailUrl($media, $thumbnail);
+
+        if ($this->getPublicFilesystem()->has($thumbnailPath)) {
+            $this->getPublicFilesystem()->delete($thumbnailPath);
+        }
+
+        $this->thumbnailService->updateThumbnails($media, $this->context);
+
+        static::assertTrue(
+            $this->getPublicFilesystem()->has($thumbnailPath),
+            'Thumbnail: ' . $thumbnailPath . ' does not exist'
+        );
+    }
 }
